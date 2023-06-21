@@ -39,6 +39,7 @@
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <cstring>
+#include "CommandConverter.h"
 
 #include "SparkFun_Qwiic_Scale_NAU7802_Arduino_Library.h" // Click here to get the library: http://librarymanager/All#SparkFun_NAU8702
 
@@ -66,17 +67,10 @@ BLECharacteristic* controlCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 
+//initialize command that will be used to control device
+Commands command = Commands::NOTHING;
 
-//Define commands from phone using enum
-enum Commands : uint8_t {
-    NOTHING = 0,
-    TARE = 1,
-    CALIBRATE = 2,
-    TIMED_MEASURE = 3
-};
-
-uint8_t command = NOTHING;
-
+//add BLE server callbacks
 class ByteboardServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     deviceConnected = true;
@@ -87,6 +81,7 @@ class ByteboardServerCallbacks: public BLEServerCallbacks {
   }
 };
 
+//add callbacks for the Measurement characteristic
 class MeasurementCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       std::string value = pCharacteristic->getValue();
@@ -105,8 +100,17 @@ class MeasurementCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
 class ControlCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
-      uint8_t* commandPtr = pCharacteristic->getData();
-      command = *commandPtr;
+      std::string commandString = pCharacteristic->getValue();
+      try {
+        command = stringToCommand(commandString);
+        // Use the 'command' variable here
+      } catch (const std::invalid_argument& e) {
+        // Handle the error here
+        Serial.println(e.what());
+        Serial.println("Setting command to NOTHING");
+        command = Commands::NOTHING;
+      }
+      
     }
 };
 
@@ -132,6 +136,7 @@ void setFloatArrayValue(BLECharacteristic* p, float* data32, size_t length) {
 void setup()
 {
   Serial.begin(115200);
+  Serial.println("Beginning setup!");
   BLEDevice::init("Byteboard");
 
   byteBoardServer = BLEDevice::createServer();
@@ -155,7 +160,11 @@ void setup()
 
   controlCharacteristic->setCallbacks(new ControlCharacteristicCallbacks());
 
-  measurementCharacteristic->setValue("Hello World");
+  measurementCharacteristic->setValue("Hello Measurement Characteristic");
+
+  delay(500);
+  
+  controlCharacteristic->setValue("Hello Control Characteristic");
   byteBoardService->start();
 
   BLEAdvertising *byteBoardAdvertising = byteBoardServer->getAdvertising();
@@ -163,23 +172,24 @@ void setup()
 
   Wire.begin();
   Wire.setClock(400000); //Qwiic Scale is capable of running at 400kHz if desired
+  Serial.println("Setup finished!");
 
-  if (myScale.begin() == false)
-  {
-    Serial.println("Scale not detected. Please check wiring. Freezing...");
-    while (1);
-  }
-  Serial.println("Scale detected!");
+  // if (myScale.begin() == false)
+  // {
+  //   Serial.println("Scale not detected. Please check wiring. Freezing...");
+  //   while (1);
+  // }
+  // Serial.println("Scale detected!");
 
-  readSystemSettings(); //Load zeroOffset and calibrationFactor from EEPROM
+  // readSystemSettings(); //Load zeroOffset and calibrationFactor from EEPROM
 
-  myScale.setSampleRate(NAU7802_SPS_320); //Increase to max sample rate
-  myScale.calibrateAFE(); //Re-cal analog front end when we change gain, sample rate, or channel 
+  // myScale.setSampleRate(NAU7802_SPS_320); //Increase to max sample rate
+  // myScale.calibrateAFE(); //Re-cal analog front end when we change gain, sample rate, or channel 
 
-  Serial.print("Zero offset: ");
-  Serial.println(myScale.getZeroOffset());
-  Serial.print("Calibration factor: ");
-  Serial.println(myScale.getCalibrationFactor());
+  // Serial.print("Zero offset: ");
+  // Serial.println(myScale.getZeroOffset());
+  // Serial.print("Calibration factor: ");
+  // Serial.println(myScale.getCalibrationFactor());
 }
 
 void loop()
@@ -187,20 +197,35 @@ void loop()
   // check for commands from client
   if (deviceConnected) {
     switch (command) {
-      case NOTHING:
+      case Commands::NOTHING:
         // Do something for NOTHING command
         break;
-      case TARE:
+      case Commands::TARE:
+        Serial.println("TARE command");
         // Do something for TARE command
-        myScale.calculateZeroOffset();
+        while (command != Commands::ACKNOWLEDGE) {
+          delay(1);
+        }
+        Serial.println("You acknowledged!");
+        // myScale.calculateZeroOffset();
         break;
-      case CALIBRATE:
+      case Commands::CALIBRATE:
+        Serial.println("CALIBRATE command");
         // Do something for CALIBRATE command
-        calibrateScale();
+        while (command != Commands::ACKNOWLEDGE) {
+          delay(1);
+        }
+        Serial.println("You acknowledged!");
+        // calibrateScale();
         break;
-      case TIMED_MEASURE:
+      case Commands::TIMED_MEASURE:
         // Do something for TIMED_MEASURE command
-        timedMeasure();
+        Serial.println("TIMED_MEASURE command");
+        while (command != Commands::ACKNOWLEDGE) {
+          delay(1);
+        }
+        Serial.println("You acknowledged!");
+        // timedMeasure();
         break;
       default:
         // Optional: handle unknown commands
